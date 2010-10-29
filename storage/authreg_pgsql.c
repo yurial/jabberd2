@@ -392,7 +392,7 @@ int ar_init(authreg_t ar) {
     login = malloc( strlen( template )
 		     + strlentur
 		     + strlen( pgsqlcontext->field_password ) );
-    sprintf( select, template
+    sprintf( login, template
 	     , pgsqlcontext->field_password
 	     , table, username, realm,
 	     pgsqlcontext->field_password );
