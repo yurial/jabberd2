@@ -417,8 +417,8 @@ int ar_init(authreg_t ar) {
 
     pgsqlcontext->sql_login = strdup(_ar_pgsql_param( ar->c2s->config
 	       , "authreg.pgsql.sql.login"
-           , select ));
-    if( _ar_pgsql_check_sql( ar, pgsqlcontext->sql_select, "sss" ) != 0 ) return 1;
+           , login ));
+    if( _ar_pgsql_check_sql( ar, pgsqlcontext->sql_login, "sss" ) != 0 ) return 1;
 
     pgsqlcontext->sql_setpassword = strdup(_ar_pgsql_param( ar->c2s->config
 	       , "authreg.pgsql.sql.setpassword"
