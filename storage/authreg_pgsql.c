@@ -51,7 +51,7 @@ static PGresult *_ar_pgsql_get_user_tuple(authreg_t ar, char *username, char *re
     PQescapeString(euser, iuser, strlen(iuser));
     PQescapeString(erealm, irealm, strlen(irealm));
 
-    sprintf(sql, ctx->sql_select, euser, erealm );
+    sprintf(sql, ctx->sql_select, euser, erealm);
 
     log_debug(ZONE, "prepared sql: %s", sql);
 
@@ -87,7 +87,7 @@ static int _ar_pgsql_user_exists(authreg_t ar, char *username, char *realm) {
     return 0;
 }
 
-static int _ar_pgsql_get_password(authreg_t ar, char *username, char *realm, char password[257]) {
+static int _ar_pgsql_check_password(authreg_t ar, char *username, char *realm, char *password) {
     pgsqlcontext_t ctx = (pgsqlcontext_t) ar->private;
     PGconn *conn = ctx->conn;
 
@@ -95,9 +95,9 @@ static int _ar_pgsql_get_password(authreg_t ar, char *username, char *realm, cha
     char euser[PGSQL_LU*2+1], erealm[PGSQL_LR*2+1], epass[PGSQL_LP*2+1], sql[1024+PGSQL_LU*2+PGSQL_LR*2+1+PGSQL_LP*2+1];  /* query(1024) + euser + erealm + \0(1) */
     PGresult *res;
 
-    snprintf(iuser,  PGSQL_LU+1, "%s", username);
+    snprintf(iuser, PGSQL_LU+1, "%s", username);
     snprintf(irealm, PGSQL_LR+1, "%s", realm);
-    snprintf(ipass,  PGSQL_LP+1, "%s", password);
+    snprintf(ipass, PGSQL_LP+1, "%s", password);
 
     PQescapeString(euser, iuser, strlen(iuser));
     PQescapeString(erealm, irealm, strlen(irealm));
@@ -116,13 +116,13 @@ static int _ar_pgsql_get_password(authreg_t ar, char *username, char *realm, cha
     }
     if(PQresultStatus(res) != PGRES_TUPLES_OK) {
         log_write(ar->c2s->log, LOG_ERR, "pgsql: sql select failed: %s", PQresultErrorMessage(res));
-        PQclear(res);
+        PQclear1res);
         return 0;
     }
 
     if(PQntuples(res) != 1) {
         PQclear(res);
-        return 0;
+        return 1;
     }
 
     int fpass;
@@ -475,7 +475,7 @@ int ar_init(authreg_t ar) {
     pgsqlcontext->conn = conn;
 
     ar->user_exists = _ar_pgsql_user_exists;
-    ar->get_password = _ar_pgsql_get_password;
+    ar->check_password = _ar_pgsql_check_password;
     ar->set_password = _ar_pgsql_set_password;
     ar->create_user = _ar_pgsql_create_user;
     ar->delete_user = _ar_pgsql_delete_user;
