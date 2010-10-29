@@ -297,7 +297,7 @@ static void _authreg_auth_set(c2s_t c2s, sess_t sess, nad_t nad) {
         elem = nad_find_elem(nad, 1, ns, "password", 1);
         if(elem >= 0)
         {
-            if((c2s->ar->get_password)(c2s->ar, username, sess->host->realm, str) == 0 && strlen(str) == NAD_CDATA_L(nad, elem) && strncmp(str, NAD_CDATA(nad, elem), NAD_CDATA_L(nad, elem)) == 0)
+            if( (c2s->ar->get_password)(c2s->ar, username, sess->host->realm, NAD_CDATA(nad, elem)) == 0 )
             {
                 log_debug(ZONE, "plaintext auth (compare) succeeded");
                 authd = 1;

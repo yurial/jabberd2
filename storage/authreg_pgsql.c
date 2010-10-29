@@ -36,21 +36,23 @@ typedef struct pgsqlcontext_st {
   char * field_password;
   } *pgsqlcontext_t;
 
-static PGresult *_ar_pgsql_get_user_tuple(authreg_t ar, char *username, char *realm) {
+static PGresult *_ar_pgsql_get_user_tuple(authreg_t ar, char *username, char *realm, char* pass) {
     pgsqlcontext_t ctx = (pgsqlcontext_t) ar->private;
     PGconn *conn = ctx->conn;
 
-    char iuser[PGSQL_LU+1], irealm[PGSQL_LR+1];
-    char euser[PGSQL_LU*2+1], erealm[PGSQL_LR*2+1], sql[1024+PGSQL_LU*2+PGSQL_LR*2+1];  /* query(1024) + euser + erealm + \0(1) */
+    char iuser[PGSQL_LU+1], irealm[PGSQL_LR+1], ipass[PGSQL_LP+1];
+    char euser[PGSQL_LU*2+1], erealm[PGSQL_LR*2+1], epass[PGSQL_LP*2+1], sql[1024+PGSQL_LU*2+PGSQL_LR*2+1+PGSQL_LP*2+1];  /* query(1024) + euser + erealm + \0(1) */
     PGresult *res;
 
-    snprintf(iuser, PGSQL_LU+1, "%s", username);
+    snprintf(iuser,  PGSQL_LU+1, "%s", username);
     snprintf(irealm, PGSQL_LR+1, "%s", realm);
+    snprintf(ipass,  PGSQL_LP+1, "%s", pass);
 
     PQescapeString(euser, iuser, strlen(iuser));
     PQescapeString(erealm, irealm, strlen(irealm));
+    PQescapeString(epass, ipass, strlen(ipass));
 
-    sprintf(sql, ctx->sql_select, euser, erealm);
+    sprintf(sql, ctx->sql_select, euser, erealm, (pass)? epass : "1" );
 
     log_debug(ZONE, "prepared sql: %s", sql);
 
@@ -76,7 +78,7 @@ static PGresult *_ar_pgsql_get_user_tuple(authreg_t ar, char *username, char *re
 }
 
 static int _ar_pgsql_user_exists(authreg_t ar, char *username, char *realm) {
-    PGresult *res = _ar_pgsql_get_user_tuple(ar, username, realm);
+    PGresult *res = _ar_pgsql_get_user_tuple(ar, username, realm, NULL);
 
     if(res != NULL) {
         PQclear(res);
@@ -88,7 +90,7 @@ static int _ar_pgsql_user_exists(authreg_t ar, char *username, char *realm) {
 
 static int _ar_pgsql_get_password(authreg_t ar, char *username, char *realm, char password[257]) {
     pgsqlcontext_t ctx = (pgsqlcontext_t) ar->private;
-    PGresult *res = _ar_pgsql_get_user_tuple(ar, username, realm);
+    PGresult *res = _ar_pgsql_get_user_tuple(ar, username, realm, password);
     int fpass;
 
     if(res == NULL)
@@ -106,7 +108,7 @@ static int _ar_pgsql_get_password(authreg_t ar, char *username, char *realm, cha
         return 1;
     }
 
-    strcpy(password, PQgetvalue(res, 0, fpass));
+    //strcpy(password, PQgetvalue(res, 0, fpass));
 
     PQclear(res);
 
@@ -156,7 +158,7 @@ static int _ar_pgsql_create_user(authreg_t ar, char *username, char *realm) {
     char euser[PGSQL_LU*2+1], erealm[PGSQL_LR*2+1], sql[1024+PGSQL_LU*2+PGSQL_LR*2+1];  /* query(1024) + euser + erealm + \0(1) */
     PGresult *res;
 
-    res = _ar_pgsql_get_user_tuple(ar, username, realm);
+    res = _ar_pgsql_get_user_tuple(ar, username, realm, NULL);
     if(res != NULL) {
         PQclear(res);
         return 1;
@@ -342,19 +344,21 @@ int ar_init(authreg_t ar) {
 
     strlentur = strlen( table ) + strlen( username) + strlen( realm );  /* avoid repetition */
 
-    template = "INSERT INTO \"%s\" ( \"%s\", \"%s\" ) VALUES ( '%%s', '%%s' )";
+    template = "INSERT INTO \"%s\" ( \"%s\", \"%s\" ) VALUES ( '%%s', MD5('%%s') )";
     create = malloc( strlen( template ) + strlentur ); 
     sprintf( create, template, table, username, realm );
 
-    template = "SELECT \"%s\" FROM \"%s\" WHERE \"%s\" = '%%s' AND \"%s\" = '%%s'";
+    template = "SELECT \"%s\" FROM \"%s\" WHERE \"%s\" = '%%s' AND \"%s\" = '%%s' AND \"%s\" = MD5('%%s')";
     select = malloc( strlen( template )
 		     + strlen( pgsqlcontext->field_password )
-		     + strlentur ); 
+		     + strlentur
+		     + strlen( pgsqlcontext->field_password ) ); 
     sprintf( select, template
 	     , pgsqlcontext->field_password
-	     , table, username, realm );
+	     , table, username, realm,
+	     pgsqlcontext->field_password );
 
-    template = "UPDATE \"%s\" SET \"%s\" = '%%s' WHERE \"%s\" = '%%s' AND \"%s\" = '%%s'";
+    template = "UPDATE \"%s\" SET \"%s\" = MD5('%%s') WHERE \"%s\" = '%%s' AND \"%s\" = '%%s'";
     setpassword = malloc( strlen( template ) + strlentur + strlen( pgsqlcontext->field_password ) ); 
     sprintf( setpassword, template, table, pgsqlcontext->field_password, username, realm );
 
