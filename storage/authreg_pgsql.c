@@ -393,7 +393,6 @@ int ar_init(authreg_t ar) {
 		     + strlentur
 		     + strlen( pgsqlcontext->field_password ) );
     sprintf( login, template
-	     , pgsqlcontext->field_password
 	     , table, username, realm,
 	     pgsqlcontext->field_password );
 
