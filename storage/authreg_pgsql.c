@@ -344,7 +344,7 @@ int ar_init(authreg_t ar) {
 
     strlentur = strlen( table ) + strlen( username) + strlen( realm );  /* avoid repetition */
 
-    template = "INSERT INTO \"%s\" ( \"%s\", \"%s\" ) VALUES ( '%%s', MD5('%%s') )";
+    template = "INSERT INTO \"%s\" ( \"%s\", \"%s\" ) VALUES ( '%%s', '%%s' )";
     create = malloc( strlen( template ) + strlentur ); 
     sprintf( create, template, table, username, realm );
 
