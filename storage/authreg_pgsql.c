@@ -116,8 +116,8 @@ static int _ar_pgsql_check_password(authreg_t ar, char *username, char *realm, c
     }
     if(PQresultStatus(res) != PGRES_TUPLES_OK) {
         log_write(ar->c2s->log, LOG_ERR, "pgsql: sql select failed: %s", PQresultErrorMessage(res));
-        PQclear1res);
-        return 0;
+        PQclear(res);
+        return 1;
     }
 
     if(PQntuples(res) != 1) {
@@ -125,19 +125,10 @@ static int _ar_pgsql_check_password(authreg_t ar, char *username, char *realm, c
         return 1;
     }
 
-    int fpass;
-
     if(res == NULL)
         return 1;
 
-    fpass = PQfnumber(res, ctx->field_password);
-    if(fpass == -1) {
-        log_debug(ZONE, "weird, password field wasn't returned");
-        PQclear(res);
-        return 1;
-    }
-
-    if(PQgetisnull(res, 0, fpass)) {
+    if(PQgetisnull(res, 0, 0)) {
         PQclear(res);
         return 1;
     }
