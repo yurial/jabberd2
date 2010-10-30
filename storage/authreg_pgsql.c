@@ -31,6 +31,7 @@ typedef struct pgsqlcontext_st {
   PGconn * conn;
   char * sql_create;
   char * sql_select;
+  char * sql_login;
   char * sql_setpassword;
   char * sql_delete;
   char * field_password;
@@ -84,6 +85,54 @@ static int _ar_pgsql_user_exists(authreg_t ar, char *username, char *realm) {
     }
 
     return 0;
+}
+
+static int _ar_pgsql_check_password(authreg_t ar, char *username, char *realm, char *password) {
+    pgsqlcontext_t ctx = (pgsqlcontext_t) ar->private;
+    PGconn *conn = ctx->conn;
+
+    char iuser[PGSQL_LU+1], irealm[PGSQL_LR+1], ipass[PGSQL_LP+1];
+    char euser[PGSQL_LU*2+1], erealm[PGSQL_LR*2+1], epass[PGSQL_LP*2+1], sql[1024+PGSQL_LU*2+PGSQL_LR*2+1+PGSQL_LP*2+1];  /* query(1024) + euser + erealm + epass\0(1) */
+    PGresult *res;
+
+    snprintf(iuser, PGSQL_LU+1, "%s", username);
+    snprintf(irealm, PGSQL_LR+1, "%s", realm);
+    snprintf(ipass, PGSQL_LP+1, "%s", password);
+
+    PQescapeString(euser, iuser, strlen(iuser));
+    PQescapeString(erealm, irealm, strlen(irealm));
+    PQescapeString(epass, ipass, strlen(ipass));
+
+    sprintf(sql, ctx->sql_login, euser, erealm, epass );
+
+    log_debug(ZONE, "prepared sql: %s", sql);
+
+    res = PQexec(conn, sql);
+    if(PQresultStatus(res) != PGRES_TUPLES_OK && PQstatus(conn) != CONNECTION_OK) {
+        log_write(ar->c2s->log, LOG_ERR, "pgsql: lost connection to database, attempting reconnect");
+        PQclear(res);
+        PQreset(conn);
+        res = PQexec(conn, sql);
+    }
+    if(PQresultStatus(res) != PGRES_TUPLES_OK) {
+        log_write(ar->c2s->log, LOG_ERR, "pgsql: sql select failed: %s", PQresultErrorMessage(res));
+        PQclear(res);
+        return 1;
+    }
+
+    if(res == NULL)
+        return 1;
+
+    if(PQgetisnull(res, 0, 0)) {
+        PQclear(res);
+        return 1;
+    }
+
+    int login = atoi( PQgetvalue(res, 0, 0) );
+
+    PQclear(res);
+
+    return login? 0 : 1;
 }
 
 static int _ar_pgsql_get_password(authreg_t ar, char *username, char *realm, char password[257]) {
@@ -236,6 +285,7 @@ static void _ar_pgsql_free(authreg_t ar) {
 
     free(ctx->sql_create);
     free(ctx->sql_select);
+    free(ctx->sql_login);
     free(ctx->sql_setpassword);
     free(ctx->sql_delete);
     free(ctx);
@@ -309,7 +359,7 @@ extern int sx_openssl_initialized;
 /** start me up */
 int ar_init(authreg_t ar) {
     char *host, *port, *dbname, *user, *pass, *conninfo;
-    char *create, *select, *setpassword, *delete;
+    char *create, *select, *login, *setpassword, *delete;
     char *table, *username, *realm;
     char *template;
     int strlentur; /* string length of table, user, and realm strings */
@@ -354,7 +404,15 @@ int ar_init(authreg_t ar) {
 	     , pgsqlcontext->field_password
 	     , table, username, realm );
 
-    template = "UPDATE \"%s\" SET \"%s\" = '%%s' WHERE \"%s\" = '%%s' AND \"%s\" = '%%s'";
+    template = "SELECT count(*) FROM \"%s\" WHERE \"%s\" = '%%s' AND \"%s\" = '%%s' AND \"%s\" = '%%s'";
+    login = malloc( strlen( template )
+             + strlentur
+             + strlen( pgsqlcontext->field_password ) );
+    sprintf( login, template
+         , table, username, realm,
+         pgsqlcontext->field_password );
+
+    template = "UPDATE \"%s\" SET \"%s\" = '%%s' WHERE \"%s\" = '%%s' AND \"%s\" = '%%s' LIMIT 1";
     setpassword = malloc( strlen( template ) + strlentur + strlen( pgsqlcontext->field_password ) ); 
     sprintf( setpassword, template, table, pgsqlcontext->field_password, username, realm );
 
@@ -369,9 +427,14 @@ int ar_init(authreg_t ar) {
     if( _ar_pgsql_check_sql( ar, pgsqlcontext->sql_create, "ss" ) != 0 ) return 1;
 
     pgsqlcontext->sql_select = strdup(_ar_pgsql_param( ar->c2s->config
-	       , "authreg.pgsql.sql.select"
+           , "authreg.pgsql.sql.select"
            , select ));
     if( _ar_pgsql_check_sql( ar, pgsqlcontext->sql_select, "ss" ) != 0 ) return 1;
+
+    pgsqlcontext->sql_login = strdup(_ar_pgsql_param( ar->c2s->config
+           , "authreg.pgsql.sql.login"
+           , login ));
+    if( _ar_pgsql_check_sql( ar, pgsqlcontext->sql_login, "sss" ) != 0 ) return 1;
 
     pgsqlcontext->sql_setpassword = strdup(_ar_pgsql_param( ar->c2s->config
 	       , "authreg.pgsql.sql.setpassword"
@@ -386,11 +449,13 @@ int ar_init(authreg_t ar) {
     /* echo our configuration to debug */
     log_debug( ZONE, "SQL to create account: %s", pgsqlcontext->sql_create );
     log_debug( ZONE, "SQL to query user information: %s", pgsqlcontext->sql_select );
+    log_debug( ZONE, "SQL to login: %s", pgsqlcontext->sql_login );
     log_debug( ZONE, "SQL to set password: %s", pgsqlcontext->sql_setpassword );
     log_debug( ZONE, "SQL to delete account: %s", pgsqlcontext->sql_delete );
 
     free(create);
     free(select);
+    free(login);
     free(setpassword);
     free(delete);
 
@@ -427,6 +492,7 @@ int ar_init(authreg_t ar) {
     pgsqlcontext->conn = conn;
 
     ar->user_exists = _ar_pgsql_user_exists;
+    ar->check_password = _ar_pgsql_check_password;
     ar->get_password = _ar_pgsql_get_password;
     ar->set_password = _ar_pgsql_set_password;
     ar->create_user = _ar_pgsql_create_user;
